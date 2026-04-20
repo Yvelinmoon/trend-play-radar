@@ -1,0 +1,41 @@
+[
+  {
+    "platform": "reddit",
+    "external_id": "reddit-romance-checklist-old-1",
+    "title": "Early threads compare dating standards with a satirical score sheet",
+    "summary": "Smaller communities were already turning dating stress into list-based self-evaluation.",
+    "url": "https://example.com/reddit/romance-checklist-old-1",
+    "published_at": "2026-04-16T04:00:00+00:00",
+    "engagement": 340,
+    "tags": ["dating", "scorecard", "identity"],
+    "metrics": {"upvotes": 280, "comments": 60},
+    "keyword_hint": "dating scorecard",
+    "author": "user_old_dating"
+  },
+  {
+    "platform": "reddit",
+    "external_id": "reddit-romance-checklist-4",
+    "title": "Everyone is posting satirical dating red flag checklists",
+    "summary": "Users compare absurd relationship standards and convert them into scorecards.",
+    "url": "https://example.com/reddit/romance-checklist-4",
+    "published_at": "2026-04-20T03:00:00+00:00",
+    "engagement": 1880,
+    "tags": ["dating", "checklist", "scorecard", "identity"],
+    "metrics": {"upvotes": 1600, "comments": 280},
+    "keyword_hint": "dating red flag checklist",
+    "author": "user_recent_dating"
+  },
+  {
+    "platform": "tiktok",
+    "external_id": "tiktok-romance-checklist-8",
+    "title": "Rate your situationship in 5 cursed questions",
+    "summary": "Short videos turn modern dating pain into punchy question cards.",
+    "url": "https://example.com/tiktok/romance-checklist-8",
+    "published_at": "2026-04-20T05:30:00+00:00",
+    "engagement": 9600,
+    "tags": ["dating", "questions", "shareable"],
+    "metrics": {"likes": 9000, "shares": 500, "comments": 100},
+    "keyword_hint": "situationship questions",
+    "author": "creator_dating"
+  }
+]
