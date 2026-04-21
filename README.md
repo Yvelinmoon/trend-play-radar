@@ -98,8 +98,9 @@ PYTHONPATH=src python3 -m trend_play_radar analyze
 PYTHONPATH=src python3 -m trend_play_radar report --limit 5
 PYTHONPATH=src python3 -m trend_play_radar run --connectors mock,json --json-input data/sample_signals.json
 PYTHONPATH=src python3 -m trend_play_radar run --connectors rss,google_trends --rss-feeds data/sample_feed.xml --trends-bridge data/sample_google_trends.json
-PYTHONPATH=src python3 -m trend_play_radar run --connectors rss,google_trends --trends-bridge data/sample_google_trends.json
 ```
+
+`data/sample_google_trends.json` is a local test fixture. Do not publish it to the production Cloudflare bridge.
 
 ## Automatic-source setup
 

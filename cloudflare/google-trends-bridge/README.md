@@ -19,6 +19,11 @@ This Worker stores and serves the latest bridge JSON in KV for `trend-play-radar
   - publishes a new bridge payload immediately
   - requires header `x-bridge-secret: <BRIDGE_SECRET>`
   - body should be a JSON array or `{ "records": [...] }`
+- `POST /clear`
+  - clears cached production payloads
+  - requires header `x-bridge-secret: <BRIDGE_SECRET>`
+  - optional body: `{ "targets": ["bridge", "report", "debug", "history"] }`
+  - when omitted, all cache targets are cleared
 
 ## Required setup
 
@@ -62,4 +67,21 @@ PYTHONPATH=src python3 -m trend_play_radar publish-trends-bridge \
   --bridge-url https://<your-worker-domain>/publish \
   --bridge-secret <your-secret> \
   --input data/sample_google_trends.json
+```
+
+Important:
+
+- `data/sample_google_trends.json` is for local testing only.
+- Production publish now rejects sample URLs like `trends.google.com/example/...`.
+- Only publish bridge payloads generated from a real Google Trends fetch.
+
+## Clear production cache
+
+If sample data or stale data was published earlier, clear it explicitly:
+
+```bash
+curl -X POST https://<your-worker-domain>/clear \
+  -H "content-type: application/json" \
+  -H "x-bridge-secret: <your-secret>" \
+  -d '{"targets":["bridge","report","debug","history"]}'
 ```

@@ -52,6 +52,55 @@ export default {
       }
     }
 
+    if (url.pathname === "/clear") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "method_not_allowed" }, 405);
+      }
+      if (request.headers.get("x-bridge-secret") !== env.BRIDGE_SECRET) {
+        return jsonResponse({ error: "unauthorized" }, 401);
+      }
+
+      try {
+        const body = await request.json().catch(() => ({}));
+        const targets = normalizeClearTargets(body?.targets);
+        const cleared = [];
+
+        if (targets.includes("bridge")) {
+          await env.BRIDGE_CACHE.delete(CACHE_KEY);
+          cleared.push("bridge");
+        }
+        if (targets.includes("report")) {
+          await env.BRIDGE_CACHE.delete(REPORT_CACHE_KEY);
+          cleared.push("report");
+        }
+        if (targets.includes("debug")) {
+          await env.BRIDGE_CACHE.delete(DEBUG_SOURCES_CACHE_KEY);
+          cleared.push("debug");
+        }
+        if (targets.includes("history")) {
+          const history = await getReportHistoryIndex(env);
+          await Promise.all(
+            history.map((entry) => env.BRIDGE_CACHE.delete(`${REPORT_HISTORY_PREFIX}${entry.batch_id}`))
+          );
+          await env.BRIDGE_CACHE.delete(REPORT_HISTORY_INDEX_KEY);
+          cleared.push("history");
+        }
+
+        return jsonResponse(
+          {
+            ok: true,
+            cleared,
+            cleared_at: new Date().toISOString(),
+          },
+          200,
+          {},
+          "no-store"
+        );
+      } catch (error) {
+        return jsonResponse({ error: "clear_failed", detail: error.message }, 400, {}, "no-store");
+      }
+    }
+
     if (url.pathname === "/publish-report") {
       if (request.method !== "POST") {
         return jsonResponse({ error: "method_not_allowed" }, 405);
@@ -167,6 +216,7 @@ function normalizePublishedPayload(body) {
   if (!Array.isArray(records)) {
     throw new Error("Expected a JSON array or an object with a 'records' array");
   }
+  validateBridgeRecords(records);
   return {
     cached_at: new Date().toISOString(),
     records,
@@ -215,6 +265,40 @@ async function writeReportHistory(env, payload) {
 
 function buildBatchId(value) {
   return String(value).replace(/[^0-9]/g, "").slice(0, 20) || String(Date.now());
+}
+
+function normalizeClearTargets(targets) {
+  if (!Array.isArray(targets) || !targets.length) {
+    return ["bridge", "report", "debug", "history"];
+  }
+  const normalized = Array.from(
+    new Set(
+      targets
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter((value) => ["bridge", "report", "debug", "history"].includes(value))
+    )
+  );
+  return normalized.length ? normalized : ["bridge", "report", "debug", "history"];
+}
+
+function validateBridgeRecords(records) {
+  for (const record of records) {
+    const url = String(record?.url || "");
+    const rawPayload = record?.raw_payload || {};
+    const series = rawPayload?.series;
+
+    if (url.includes("trends.google.com/example/")) {
+      throw new Error("Sample Google Trends URLs are not allowed in production cache");
+    }
+
+    if (record?.keyword && url.includes("trends.google.com") && !url.includes("/trends/explore")) {
+      throw new Error("Google Trends records must use a real /trends/explore URL");
+    }
+
+    if (record?.keyword && rawPayload && Object.keys(rawPayload).length > 0 && !Array.isArray(series)) {
+      throw new Error("Google Trends records must include raw_payload.series when publishing to production");
+    }
+  }
 }
 
 function jsonResponse(payload, status = 200, headers = {}, cacheControl = "public, max-age=300") {
