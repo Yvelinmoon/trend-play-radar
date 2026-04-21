@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+from http.client import IncompleteRead
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -501,8 +502,17 @@ def publish_json_payload(url: str, bridge_secret: str, payload: str) -> dict:
         },
     )
     with urlopen(request, timeout=30) as response:
-        body = response.read().decode("utf-8")
-    return json.loads(body)
+        try:
+            body = response.read().decode("utf-8")
+        except IncompleteRead as exc:
+            partial = exc.partial.decode("utf-8", errors="ignore").strip()
+            if not partial:
+                return {}
+            body = partial
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        return {}
 
 
 if __name__ == "__main__":

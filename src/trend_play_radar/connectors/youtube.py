@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 from datetime import datetime, timezone
+from http.client import IncompleteRead
+from time import sleep
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -12,6 +16,7 @@ from trend_play_radar.models import RawSignal
 
 YOUTUBE_VIDEOS_API = "https://www.googleapis.com/youtube/v3/videos"
 DEFAULT_USER_AGENT = "trend-play-radar/0.1"
+MAX_RETRIES = 3
 
 
 class YouTubeConnector(Connector):
@@ -52,8 +57,36 @@ def request_youtube_videos(*, api_key: str, region: str, max_results: int, categ
             "User-Agent": DEFAULT_USER_AGENT,
         },
     )
-    with urlopen(request, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            with urlopen(request, timeout=20) as response:
+                try:
+                    raw = response.read()
+                except IncompleteRead as exc:
+                    raw = exc.partial
+            return json.loads(raw.decode("utf-8"))
+        except (IncompleteRead, json.JSONDecodeError, URLError) as exc:
+            last_error = exc
+        except HTTPError:
+            raise
+
+        if attempt < MAX_RETRIES:
+            sleep(1.0 * attempt)
+
+    try:
+        completed = subprocess.run(
+            ["curl", "-sS", "--fail", "--compressed", url],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(completed.stdout)
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        last_error = exc
+
+    assert last_error is not None
+    raise last_error
 
 
 def build_signals(payload: dict, *, region: str, category: str) -> list[RawSignal]:
