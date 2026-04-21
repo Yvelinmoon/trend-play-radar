@@ -5,6 +5,11 @@ const DEFAULT_ITCH_IO_FEEDS = [
   "https://itch.io/games/price-free.xml",
 ];
 
+const DEFAULT_YOUTUBE_REGION = "US";
+const DEFAULT_YOUTUBE_CATEGORIES = ["20", "24"];
+const DEFAULT_YOUTUBE_MAX_RESULTS = 25;
+const YOUTUBE_VIDEOS_API = "https://www.googleapis.com/youtube/v3/videos";
+
 const DEFAULT_TRENDS_TOPIC_MAP = [
   {
     topic_key: "brainrot_meme",
@@ -169,11 +174,12 @@ const PREVIOUS_WINDOW_MS = 24 * 60 * 60 * 1000;
 const BASELINE_DAYS = 7;
 const HISTORY_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
-export async function runManualRefresh(existingSignals = []) {
+export async function runManualRefresh(existingSignals = [], options = {}) {
   const nowIso = new Date().toISOString();
   const rssResult = await fetchRssSignals();
+  const youtubeResult = await fetchYouTubeSignals(options);
   const googleResult = await fetchGoogleTrendsSignals();
-  const freshSignals = [...rssResult.signals, ...googleResult.signals];
+  const freshSignals = [...rssResult.signals, ...youtubeResult.signals, ...googleResult.signals];
   const signalHistory = mergeSignalHistory(existingSignals, freshSignals);
   const topics = scoreTopics(clusterSignals(signalHistory));
 
@@ -189,6 +195,7 @@ export async function runManualRefresh(existingSignals = []) {
     },
     debugPayload: buildDebugSourcesPayload(nowIso, freshSignals, {
       rss: rssResult.meta,
+      youtube: youtubeResult.meta,
       google_trends: googleResult.meta,
     }),
     signalHistory,
@@ -199,6 +206,7 @@ export async function runManualRefresh(existingSignals = []) {
       history_signal_count: signalHistory.length,
       sources: {
         rss: rssResult.meta,
+        youtube: youtubeResult.meta,
         google_trends: googleResult.meta,
       },
     },
@@ -218,6 +226,18 @@ function mergeSignalHistory(existingSignals, freshSignals) {
     }
   }
   return Array.from(merged.values()).sort((a, b) => new Date(a.published_at) - new Date(b.published_at));
+}
+
+function dedupeSignals(signals) {
+  const seen = new Set();
+  const output = [];
+  for (const signal of signals) {
+    const key = `${signal.platform}:${signal.external_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(signal);
+  }
+  return output;
 }
 
 async function fetchRssSignals() {
@@ -337,6 +357,132 @@ async function fetchGoogleTrendsSignals() {
       errors,
     },
   };
+}
+
+async function fetchYouTubeSignals(options = {}) {
+  const apiKey = String(options.youtubeApiKey || "").trim();
+  const region = String(options.youtubeRegion || DEFAULT_YOUTUBE_REGION).trim() || DEFAULT_YOUTUBE_REGION;
+  const categories = Array.isArray(options.youtubeCategories) && options.youtubeCategories.length
+    ? options.youtubeCategories
+    : DEFAULT_YOUTUBE_CATEGORIES;
+  const maxResults = Number(options.youtubeMaxResults || DEFAULT_YOUTUBE_MAX_RESULTS) || DEFAULT_YOUTUBE_MAX_RESULTS;
+
+  if (!apiKey) {
+    return {
+      signals: [],
+      meta: {
+        status: "skipped",
+        count: 0,
+        region,
+        categories,
+        errors: [{ error: "Missing YOUTUBE_API_KEY secret" }],
+      },
+    };
+  }
+
+  const signals = [];
+  const errors = [];
+  for (const category of categories) {
+    try {
+      const payload = await requestYouTubeVideos({
+        apiKey,
+        region,
+        category,
+        maxResults,
+      });
+      signals.push(...buildYouTubeSignals(payload, { region, category }));
+    } catch (error) {
+      errors.push({ category, error: error.message || String(error) });
+    }
+  }
+
+  return {
+    signals: dedupeSignals(signals),
+    meta: {
+      status: errors.length && !signals.length ? "error" : "ok",
+      count: dedupeSignals(signals).length,
+      region,
+      categories,
+      errors,
+    },
+  };
+}
+
+async function requestYouTubeVideos({ apiKey, region, category, maxResults }) {
+  const url = new URL(YOUTUBE_VIDEOS_API);
+  url.searchParams.set("part", "snippet,statistics");
+  url.searchParams.set("chart", "mostPopular");
+  url.searchParams.set("regionCode", region);
+  url.searchParams.set("maxResults", String(Math.max(1, Math.min(maxResults, 50))));
+  url.searchParams.set("key", apiKey);
+  if (category && category !== "0") {
+    url.searchParams.set("videoCategoryId", category);
+  }
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      accept: "application/json",
+    },
+    cf: { cacheTtl: 0 },
+  });
+  if (!response.ok) {
+    throw new Error(`YouTube HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+function buildYouTubeSignals(payload, { region, category }) {
+  return (payload.items || [])
+    .map((item) => {
+      const snippet = item.snippet || {};
+      const statistics = item.statistics || {};
+      const videoId = String(item.id || "").trim();
+      if (!videoId) return null;
+
+      const title = String(snippet.title || "").trim() || "Untitled YouTube video";
+      const description = String(snippet.description || "").trim();
+      const tags = Array.isArray(snippet.tags)
+        ? snippet.tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean).slice(0, 12)
+        : [];
+      const channelTitle = String(snippet.channelTitle || "").trim();
+      const publishedAt = parseDateSafe(snippet.publishedAt) || new Date().toISOString();
+      const viewCount = Number(statistics.viewCount || 0);
+      const likeCount = Number(statistics.likeCount || 0);
+      const commentCount = Number(statistics.commentCount || 0);
+
+      return {
+        platform: "youtube",
+        external_id: `youtube-${videoId}`,
+        title,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        published_at: publishedAt,
+        engagement: computeYouTubeEngagement({ viewCount, likeCount, commentCount }),
+        summary: description.slice(0, 400),
+        tags,
+        metrics: {
+          view_count: viewCount,
+          like_count: likeCount,
+          comment_count: commentCount,
+        },
+        author: channelTitle,
+        keyword_hint: [title, tags.join(" "), channelTitle].filter(Boolean).join(" "),
+        raw_payload: {
+          video_id: videoId,
+          region,
+          category,
+          channel_title: channelTitle,
+          published_at: publishedAt,
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+function computeYouTubeEngagement({ viewCount, likeCount, commentCount }) {
+  let score = Math.log10(viewCount + 1) * 10;
+  score += Math.log10(likeCount + 1) * 4;
+  score += Math.log10(commentCount + 1) * 3;
+  return round(Math.min(score, 100), 1);
 }
 
 function buildTrendQueries(topicMap) {
@@ -472,7 +618,7 @@ function buildDebugSourcesPayload(publishedAt, signals, sourceMeta) {
       samples,
     };
   }
-  for (const platform of ["rss", "google_trends"]) {
+  for (const platform of ["rss", "youtube", "google_trends"]) {
     if (!platforms[platform]) {
       platforms[platform] = {
         count: 0,

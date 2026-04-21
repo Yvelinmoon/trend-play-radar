@@ -84,7 +84,9 @@ export default {
       await setRefreshState(env, { status: "running", started_at: startedAt, finished_at: null, error: null });
       try {
         const existingSignals = await getSignalHistory(env);
-        const result = await runManualRefresh(existingSignals);
+        const result = await runManualRefresh(existingSignals, {
+          youtubeApiKey: env.YOUTUBE_API_KEY || "",
+        });
         await env.BRIDGE_CACHE.put(CACHE_KEY, JSON.stringify(result.bridgePayload));
         await env.BRIDGE_CACHE.put(REPORT_CACHE_KEY, JSON.stringify(result.reportPayload));
         await env.BRIDGE_CACHE.put(DEBUG_SOURCES_CACHE_KEY, JSON.stringify(result.debugPayload));

@@ -595,9 +595,10 @@ async function triggerRefresh() {
 function buildRefreshSummary(payload) {
   const topicCountValue = payload?.topic_count ?? 0;
   const signalCount = payload?.signal_count ?? 0;
+  const youtubeCount = payload?.sources?.youtube?.count ?? 0;
   const googleCount = payload?.sources?.google_trends?.count ?? 0;
   const rssCount = payload?.sources?.rss?.count ?? 0;
-  return `Refresh completed. ${topicCountValue} topics from ${signalCount} fresh signals. RSS ${rssCount}, Google Trends ${googleCount}.`;
+  return `Refresh completed. ${topicCountValue} topics from ${signalCount} fresh signals. YouTube ${youtubeCount}, RSS ${rssCount}, Google Trends ${googleCount}.`;
 }
 
 function isNoDataError(error) {
