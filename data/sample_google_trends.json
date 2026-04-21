@@ -1,0 +1,26 @@
+[
+  {
+    "parent_topic": "character_archetype",
+    "topic_label": "Character Archetype",
+    "query": "office personality quiz",
+    "keyword": "office personality quiz",
+    "title": "Google Trends signal for office personality quiz",
+    "url": "https://trends.google.com/example/office-personality-quiz",
+    "published_at": "2026-04-20T11:00:00+00:00",
+    "trend_score": 82,
+    "tags": ["office", "personality", "quiz"],
+    "summary": "Search interest confirms the office identity topic is broadening."
+  },
+  {
+    "parent_topic": "dating_checklist",
+    "topic_label": "Dating Checklist",
+    "query": "dating red flag checklist",
+    "keyword": "dating red flag checklist",
+    "title": "Google Trends signal for dating red flag checklist",
+    "url": "https://trends.google.com/example/dating-red-flag-checklist",
+    "published_at": "2026-04-20T11:00:00+00:00",
+    "trend_score": 67,
+    "tags": ["dating", "checklist", "relationship"],
+    "summary": "Searches suggest this topic is escaping isolated creator circles."
+  }
+]

@@ -59,6 +59,9 @@ class Topic:
     final_priority_score: float
     classification: str
     spike_risk: str
+    trend_direction: str
+    trend_summary: str
+    trend_series: list[dict[str, Any]]
     suggested_game_formats: list[str]
     suggested_marketing_hooks: list[str]
     notes: list[str] = field(default_factory=list)
@@ -89,6 +92,9 @@ class Topic:
             "final_priority_score": self.final_priority_score,
             "classification": self.classification,
             "spike_risk": self.spike_risk,
+            "trend_direction": self.trend_direction,
+            "trend_summary": self.trend_summary,
+            "trend_series": self.trend_series,
             "suggested_game_formats": self.suggested_game_formats,
             "suggested_marketing_hooks": self.suggested_marketing_hooks,
             "notes": self.notes,

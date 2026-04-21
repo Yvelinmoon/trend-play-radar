@@ -11,8 +11,16 @@ def collect_signals(
     project_root,
     json_input=None,
     keywords: list[str] | None = None,
+    rss_feeds: list[str] | None = None,
+    trends_bridge: str | None = None,
 ) -> list[RawSignal]:
-    context = ConnectorContext(project_root=project_root, json_input=json_input, keywords=keywords or [])
+    context = ConnectorContext(
+        project_root=project_root,
+        json_input=json_input,
+        keywords=keywords or [],
+        rss_feeds=rss_feeds or [],
+        trends_bridge=trends_bridge,
+    )
     signals: list[RawSignal] = []
 
     for name in connector_names:

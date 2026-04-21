@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import ceil
 
 from trend_play_radar.models import RawSignal, Topic, utcnow
@@ -72,8 +72,9 @@ def build_topic(topic_key: str, signals: list[RawSignal]) -> Topic:
     game_fit_score = round(score_game_fit(keywords), 1)
     marketing_fit_score = round(score_marketing_fit(keywords), 1)
     production_feasibility_score = round(score_production_feasibility(keywords), 1)
+    content_quality_score = round(score_content_quality(signals, keywords), 1)
     execution_fit_score = round(
-        min(game_fit_score + marketing_fit_score + production_feasibility_score, 100.0), 1
+        min(game_fit_score + marketing_fit_score + production_feasibility_score + content_quality_score, 100.0), 1
     )
 
     final_priority_score = round(confidence_score * 0.6 + execution_fit_score * 0.4, 1)
@@ -87,6 +88,15 @@ def build_topic(topic_key: str, signals: list[RawSignal]) -> Topic:
         confidence_score=confidence_score,
         execution_fit_score=execution_fit_score,
         spike_risk=spike_risk,
+        has_search_confirmation="google_trends" in platform_counts,
+    )
+    trend_series = build_trend_series(signals, reference_time)
+    trend_direction = assess_trend_direction(trend_series)
+    trend_summary = build_trend_summary(
+        trend_series=trend_series,
+        trend_direction=trend_direction,
+        current_window_count=current_window_count,
+        previous_window_count=previous_window_count,
         has_search_confirmation="google_trends" in platform_counts,
     )
 
@@ -139,6 +149,9 @@ def build_topic(topic_key: str, signals: list[RawSignal]) -> Topic:
         final_priority_score=final_priority_score,
         classification=classification,
         spike_risk=spike_risk,
+        trend_direction=trend_direction,
+        trend_summary=trend_summary,
+        trend_series=trend_series,
         suggested_game_formats=suggested_game_formats,
         suggested_marketing_hooks=suggested_marketing_hooks,
         notes=notes,
@@ -267,6 +280,39 @@ def score_production_feasibility(keywords: list[str]) -> float:
     return 12.0
 
 
+def score_content_quality(signals: list[RawSignal], keywords: list[str]) -> float:
+    title_lengths = [len(signal.title.split()) for signal in signals if signal.title]
+    meaningful_summaries = [signal for signal in signals if len(signal.summary.strip()) >= 24]
+    genre_keywords = {
+        "puzzle",
+        "cozy",
+        "merge",
+        "idle",
+        "wholesome",
+        "visual",
+        "novel",
+        "adventure",
+        "simulation",
+        "sports",
+        "action",
+        "platformer",
+        "metroidvania",
+        "survival",
+        "management",
+        "educational",
+        "shooter",
+    }
+
+    score = 0.0
+    if meaningful_summaries:
+        score += 4.0
+    if any(length >= 2 for length in title_lengths):
+        score += 2.0
+    if any(keyword in genre_keywords for keyword in keywords):
+        score += 4.0
+    return min(score, 10.0)
+
+
 def classify_topic(
     *,
     confidence_score: float,
@@ -303,7 +349,113 @@ def extract_keywords(signals: list[RawSignal]) -> list[str]:
     counts: Counter[str] = Counter()
     for signal in signals:
         counts.update(tokenize(" ".join([signal.keyword_hint, signal.title, signal.summary, *signal.tags])))
-    return [token for token, _ in counts.most_common(6)]
+    priority_tokens = {"quiz", "personality", "fandom", "character", "cozy", "puzzle", "merge", "idle", "wholesome", "visual", "novel", "adventure", "simulation", "sports", "action"}
+    ranked = sorted(
+        counts.items(),
+        key=lambda item: (0 if item[0] in priority_tokens else 1, -item[1], -len(item[0]), item[0]),
+    )
+    return [token for token, _ in ranked[:6]]
+
+
+def build_trend_series(signals: list[RawSignal], reference_time: datetime) -> list[dict]:
+    google_points = build_google_trends_series(signals)
+    if google_points:
+        return google_points
+    return build_signal_count_series(signals, reference_time)
+
+
+def build_google_trends_series(signals: list[RawSignal]) -> list[dict]:
+    series_pool: list[list[dict]] = []
+    for signal in signals:
+        raw_series = signal.raw_payload.get("raw_payload", {}).get("series") or signal.raw_payload.get("series")
+        if not raw_series:
+            continue
+        series_pool.append(raw_series)
+
+    if not series_pool:
+        return []
+
+    longest = max(series_pool, key=len)
+    points: list[dict] = []
+    for index, point in enumerate(longest):
+        values = []
+        for series in series_pool:
+            if index < len(series):
+                values.append(float(series[index].get("value", 0)))
+        if not values:
+            continue
+        label = point.get("formatted_time") or point.get("formattedTime") or str(index + 1)
+        points.append({"label": label, "value": round(sum(values) / len(values), 2)})
+
+    if len(points) <= 8:
+        return points
+
+    step = max(len(points) // 8, 1)
+    sampled = [points[index] for index in range(0, len(points), step)]
+    return sampled[-8:]
+
+
+def build_signal_count_series(signals: list[RawSignal], reference_time: datetime) -> list[dict]:
+    end = reference_time.astimezone(timezone.utc)
+    start = end - timedelta(days=6)
+    buckets = {day_index: 0 for day_index in range(7)}
+    labels = []
+    for day_index in range(7):
+        day = (start + timedelta(days=day_index)).date()
+        labels.append(day.strftime("%m-%d"))
+
+    for signal in signals:
+        signal_time = signal.published_at.astimezone(timezone.utc)
+        delta_days = (signal_time.date() - start.date()).days
+        if 0 <= delta_days < 7:
+            buckets[delta_days] += 1
+
+    return [{"label": labels[index], "value": buckets[index]} for index in range(7)]
+
+
+def assess_trend_direction(series: list[dict]) -> str:
+    if len(series) < 3:
+        return "insufficient"
+
+    values = [float(point.get("value", 0)) for point in series]
+    latest = values[-1]
+    previous_avg = sum(values[-3:-1]) / max(len(values[-3:-1]), 1)
+    early_avg = sum(values[:-2]) / max(len(values[:-2]), 1) if len(values) > 2 else previous_avg
+
+    if latest >= max(previous_avg * 1.6, early_avg * 1.8, 2):
+        return "spiking"
+    if latest > previous_avg * 1.15:
+        return "rising"
+    if latest < previous_avg * 0.75 and previous_avg > 0:
+        return "cooling"
+    if max(values) <= 1:
+        return "weak"
+    return "steady"
+
+
+def build_trend_summary(
+    *,
+    trend_series: list[dict],
+    trend_direction: str,
+    current_window_count: int,
+    previous_window_count: int,
+    has_search_confirmation: bool,
+) -> str:
+    if not trend_series:
+        return "No time trend available yet."
+    if trend_direction == "spiking":
+        return "Recent points jump sharply above the earlier baseline."
+    if trend_direction == "rising":
+        return "Recent points are trending upward over the last few intervals."
+    if trend_direction == "cooling":
+        return "This topic had activity earlier, but the latest interval cooled off."
+    if trend_direction == "steady":
+        if has_search_confirmation:
+            return "Search demand is holding at a relatively stable level."
+        return "Recent intervals are relatively flat without a breakout."
+    if trend_direction == "weak":
+        return "Signal is present, but the timeline is still thin."
+    return f"Current window {current_window_count} vs previous {previous_window_count}."
 
 
 def build_label(keywords: list[str]) -> str:

@@ -23,6 +23,11 @@ Included in this version:
 - auditable evidence in reports
 - Markdown and JSON report generation
 
+Available automatic sources in this version:
+
+- RSS / Atom feeds
+- Google Trends bridge data from a URL or file
+
 Explicitly excluded from this version:
 
 - live platform auth and scraping logic

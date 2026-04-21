@@ -30,12 +30,13 @@ The pipeline turns raw platform signals into ranked trend topics:
 
 - `mock`: sample data for end-to-end local runs
 - `json`: load signals from a local JSON file
+- `rss`: fetch RSS or Atom feeds automatically
+- `google_trends`: load automatic trend-validation data from a bridge URL or file
 - `reddit`: scaffold for future PRAW integration
 - `tiktok`: scaffold for future TikTok-Api integration
 - `x`: scaffold for future twscrape integration
-- `google_trends`: scaffold for future validation data
 
-The scaffold connectors return no data by default until credentials and fetch logic are added.
+The Reddit, TikTok, and X connectors are still scaffolds. RSS and Google Trends bridge are available now.
 
 ## Quick start
 
@@ -43,6 +44,30 @@ The scaffold connectors return no data by default until credentials and fetch lo
 cd /Users/yves/trend-play-radar
 PYTHONPATH=src python3 -m trend_play_radar run --connectors mock
 ```
+
+With the current project defaults, the first real-source setup is:
+
+- RSS feeds:
+  - `https://itch.io/feed/new.xml`
+  - `https://itch.io/feed/featured.xml`
+  - `https://itch.io/feed/sales.xml`
+  - `https://itch.io/games/price-free.xml`
+- watchlist:
+  - `brainrot meme`
+  - `chaos meme`
+  - `alignment chart`
+  - `which one are you`
+  - `tier list meme`
+  - `character archetype`
+  - `fandom quiz`
+  - `which character are you`
+  - `team picker`
+  - `alignment test`
+  - `cozy game`
+  - `puzzle game`
+  - `merge game`
+  - `idle game`
+  - `wholesome game`
 
 Outputs are written to `output/`:
 
@@ -72,7 +97,40 @@ PYTHONPATH=src python3 -m trend_play_radar collect --connectors mock
 PYTHONPATH=src python3 -m trend_play_radar analyze
 PYTHONPATH=src python3 -m trend_play_radar report --limit 5
 PYTHONPATH=src python3 -m trend_play_radar run --connectors mock,json --json-input data/sample_signals.json
+PYTHONPATH=src python3 -m trend_play_radar run --connectors rss,google_trends --rss-feeds data/sample_feed.xml --trends-bridge data/sample_google_trends.json
+PYTHONPATH=src python3 -m trend_play_radar run --connectors rss,google_trends --trends-bridge data/sample_google_trends.json
 ```
+
+## Automatic-source setup
+
+You can run the project without Reddit by using automatic feeds and a Google Trends bridge:
+
+```bash
+PYTHONPATH=src python3 -m trend_play_radar run \
+  --connectors rss,google_trends \
+  --rss-feeds https://example.com/feed.xml,https://example.com/atom.xml \
+  --trends-bridge https://example.com/google-trends-bridge.json \
+  --keywords "office personality quiz,dating red flag checklist"
+```
+
+You can also set defaults with environment variables:
+
+```bash
+export TREND_PLAY_RADAR_RSS_FEEDS="https://example.com/feed.xml,https://example.com/atom.xml"
+export TREND_PLAY_RADAR_TRENDS_BRIDGE="https://example.com/google-trends-bridge.json"
+```
+
+The project also includes a local bridge builder:
+
+```bash
+PYTHONPATH=src python3 -m trend_play_radar build-trends-bridge
+```
+
+Note: direct Google Trends requests can be rate-limited with HTTP 429 depending on network conditions. When that happens, keep using the same connector contract and point `--trends-bridge` at a JSON file or external bridge endpoint instead.
+
+For Cloudflare deployment, a ready-to-deploy Worker bridge is included in:
+
+- [cloudflare/google-trends-bridge/README.md](/Users/yves/trend-play-radar/cloudflare/google-trends-bridge/README.md)
 
 ## Project layout
 
@@ -86,6 +144,51 @@ src/trend_play_radar/
   pipeline/
 data/
   sample_signals.json
+```
+
+## Dashboard
+
+A lightweight static dashboard is included at:
+
+- [dashboard/index.html](/Users/yves/trend-play-radar/dashboard/index.html)
+
+Run a local file server from the repo root:
+
+```bash
+cd /Users/yves/trend-play-radar
+python3 -m http.server 4173
+```
+
+Then open:
+
+```text
+http://127.0.0.1:4173/dashboard/
+```
+
+The dashboard will try to load `/output/latest_report.json` automatically. It also supports loading a report URL or dropping a `latest_report.json` file into the page.
+
+For a Cloudflare Pages deployment, publish the `dashboard/` directory as a static site. The page supports:
+
+- `?report=<url>` query string for a remote JSON report URL
+- `?refresh=<seconds>` query string for automatic polling
+- remembering the last successful report URL in local storage
+- loading a local `latest_report.json` file manually
+
+If you want the deployed dashboard to load the Cloudflare bridge or any other external JSON URL directly in the browser, keep CORS enabled on that endpoint.
+
+To publish the full analyzed report to Cloudflare, use the Worker endpoint:
+
+```bash
+PYTHONPATH=src python3 -m trend_play_radar publish-report \
+  --report-url https://<your-worker-domain>/publish-report \
+  --bridge-secret <your-secret> \
+  --input output/latest_report.json
+```
+
+Then open the dashboard with:
+
+```text
+https://<your-pages-domain>/?report=https://<your-worker-domain>/report&refresh=60
 ```
 
 ## Roadmap

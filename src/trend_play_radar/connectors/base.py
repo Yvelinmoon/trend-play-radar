@@ -11,6 +11,8 @@ class ConnectorContext:
     project_root: Path
     json_input: Path | None = None
     keywords: list[str] = field(default_factory=list)
+    rss_feeds: list[str] = field(default_factory=list)
+    trends_bridge: str | None = None
 
 
 class Connector:

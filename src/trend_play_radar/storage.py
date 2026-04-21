@@ -80,6 +80,12 @@ class Storage:
         self.conn.commit()
         return count
 
+    def clear_all(self) -> None:
+        self.conn.execute("DELETE FROM signals")
+        self.conn.execute("DELETE FROM topics")
+        self.conn.execute("DELETE FROM topic_snapshots")
+        self.conn.commit()
+
     def load_signals(self) -> list[RawSignal]:
         rows = self.conn.execute("SELECT * FROM signals ORDER BY published_at DESC").fetchall()
         return [

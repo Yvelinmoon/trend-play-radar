@@ -1,5 +1,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.DS_Store
+.wrangler/
+cloudflare/google-trends-bridge/node_modules/
+dashboard/latest_report.json
 
 output/

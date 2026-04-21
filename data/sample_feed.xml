@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Trend Play Radar Sample Feed</title>
+    <link>https://example.com/feed</link>
+    <description>Sample automatic feed for local verification.</description>
+    <item>
+      <title>Office personality meme lists are spreading into quiz formats</title>
+      <link>https://example.com/posts/office-personality</link>
+      <description>Multiple creators are reframing office identity jokes as compact test formats.</description>
+      <pubDate>Mon, 20 Apr 2026 10:00:00 +0000</pubDate>
+      <category>office</category>
+      <category>personality</category>
+      <category>quiz</category>
+    </item>
+    <item>
+      <title>Dating checklist posts keep mutating into shareable scorecards</title>
+      <link>https://example.com/posts/dating-scorecard</link>
+      <description>Relationship humor is increasingly packaged as quick self-evaluation cards.</description>
+      <pubDate>Mon, 20 Apr 2026 09:00:00 +0000</pubDate>
+      <category>dating</category>
+      <category>checklist</category>
+      <category>scorecard</category>
+    </item>
+  </channel>
+</rss>

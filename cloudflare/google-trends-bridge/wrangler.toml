@@ -1,0 +1,7 @@
+name = "trend-play-radar-google-trends-bridge"
+main = "src/index.js"
+compatibility_date = "2026-04-20"
+
+[[kv_namespaces]]
+binding = "BRIDGE_CACHE"
+id = "b56b40d33ee440aa8b06a9e4b5bc922b"

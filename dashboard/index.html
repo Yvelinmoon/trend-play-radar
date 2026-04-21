@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Trend Play Radar Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="eyebrow">Trend Ops</p>
+          <h1>Trend Play Radar</h1>
+          <p class="lede">
+            Browse ranked topics, inspect confidence evidence, and decide what deserves a two-week build cycle.
+          </p>
+        </div>
+
+        <section class="panel">
+          <h2>Data Source</h2>
+          <p id="source-status" class="muted">Trying to load the latest report automatically.</p>
+          <div class="input-stack">
+            <div class="button-row">
+              <button id="load-latest" class="button button-primary">Live Report</button>
+              <button id="open-report" class="button button-secondary">Open JSON</button>
+            </div>
+            <label class="field">
+              <span>History Batch</span>
+              <select id="history-select">
+                <option value="">No history loaded</option>
+              </select>
+            </label>
+            <div class="button-row">
+              <button id="load-history" class="button button-secondary">Load Selected Batch</button>
+              <button id="reload-history" class="button button-secondary">Reload History</button>
+            </div>
+            <p id="refresh-status" class="muted">Manual mode only. No auto refresh, no local fallback, no mock data.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Filters</h2>
+          <div class="input-stack">
+            <label class="field">
+              <span>Classification</span>
+              <select id="classification-filter">
+                <option value="all">All</option>
+                <option value="high-confidence candidate">High confidence</option>
+                <option value="watchlist candidate">Watchlist</option>
+                <option value="low-confidence or noisy">Noisy</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Platform</span>
+              <select id="platform-filter">
+                <option value="all">All</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Search</span>
+              <input id="search-filter" type="search" placeholder="quiz, cozy, fandom..." />
+            </label>
+          </div>
+        </section>
+
+        <section class="panel metrics">
+          <div>
+            <p class="metric-label">Topics</p>
+            <p id="topic-count" class="metric-value">0</p>
+          </div>
+          <div>
+            <p class="metric-label">High Confidence</p>
+            <p id="high-confidence-count" class="metric-value">0</p>
+          </div>
+          <div>
+            <p class="metric-label">Average Priority</p>
+            <p id="average-priority" class="metric-value">0</p>
+          </div>
+          <div>
+            <p class="metric-label">Last Publish</p>
+            <p id="last-published" class="metric-value metric-small">n/a</p>
+          </div>
+        </section>
+      </aside>
+
+      <main class="content">
+        <header class="hero">
+          <div>
+            <p class="eyebrow">Daily Radar</p>
+            <h2>Ranked Opportunities</h2>
+          </div>
+          <p class="hero-note">
+            Priority combines trend confidence and execution fit. Use the evidence drawer before committing resources.
+          </p>
+        </header>
+
+        <section class="hero-strip">
+          <div class="mini-stat">
+            <span>Current Source</span>
+            <strong id="current-source">n/a</strong>
+          </div>
+          <div class="mini-stat">
+            <span>History Batches</span>
+            <strong id="history-count">0</strong>
+          </div>
+          <div class="mini-stat">
+            <span>Mode</span>
+            <strong id="view-mode">latest</strong>
+          </div>
+        </section>
+
+        <section class="source-board">
+          <div class="source-board-header">
+            <div>
+              <p class="eyebrow">Source Compare</p>
+              <h3>Google Trends vs itch.io RSS</h3>
+            </div>
+            <p class="hero-note">
+              Use this block to judge whether broad validation or creator-surface discovery is driving the current batch.
+            </p>
+          </div>
+          <div id="source-comparison" class="source-comparison"></div>
+        </section>
+
+        <section id="topic-list" class="topic-list"></section>
+        <section id="empty-state" class="empty-state hidden">
+          <h3>No topics loaded</h3>
+          <p>Load a report URL or JSON file to populate the dashboard.</p>
+        </section>
+      </main>
+    </div>
+
+    <template id="topic-card-template">
+      <article class="topic-card">
+        <div class="topic-topline">
+          <div>
+            <p class="topic-rank"></p>
+            <h3 class="topic-label"></h3>
+          </div>
+          <span class="classification-pill"></span>
+        </div>
+
+        <div class="score-grid">
+          <div class="score-box">
+            <span>Priority</span>
+            <strong class="priority-score"></strong>
+          </div>
+          <div class="score-box">
+            <span>Confidence</span>
+            <strong class="confidence-score"></strong>
+          </div>
+          <div class="score-box">
+            <span>Execution</span>
+            <strong class="execution-score"></strong>
+          </div>
+          <div class="score-box">
+            <span>Spike Risk</span>
+            <strong class="spike-risk"></strong>
+          </div>
+        </div>
+
+        <div class="meta-row">
+          <div class="tag-row platforms"></div>
+          <div class="tag-row keywords"></div>
+        </div>
+
+        <div class="recommendation-block">
+          <div class="trend-block">
+            <p class="section-label">Trend Assessment</p>
+            <p class="trend-direction"></p>
+            <p class="trend-summary"></p>
+            <div class="trend-chart-block">
+              <svg class="trend-chart" viewBox="0 0 180 64" preserveAspectRatio="none"></svg>
+              <div class="trend-chart-labels"></div>
+            </div>
+          </div>
+          <div>
+            <p class="section-label">Suggested Formats</p>
+            <ul class="format-list"></ul>
+          </div>
+          <div>
+            <p class="section-label">Marketing Hooks</p>
+            <ul class="hook-list"></ul>
+          </div>
+        </div>
+
+        <details class="details-panel">
+          <summary>Evidence and diagnostics</summary>
+          <div class="detail-columns">
+            <div>
+              <p class="section-label">Evidence</p>
+              <ul class="evidence-list"></ul>
+            </div>
+            <div>
+              <p class="section-label">Notes</p>
+              <ul class="notes-list"></ul>
+            </div>
+            <div>
+              <p class="section-label">Signals</p>
+              <ul class="signals-list"></ul>
+            </div>
+          </div>
+        </details>
+      </article>
+    </template>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
