@@ -22,6 +22,7 @@
           <p id="source-status" class="muted">Trying to load the latest report automatically.</p>
           <div class="input-stack">
             <div class="button-row">
+              <button id="refresh-live" class="button button-primary">Refresh Live Data</button>
               <button id="load-latest" class="button button-primary">Live Report</button>
               <button id="open-report" class="button button-secondary">Open JSON</button>
             </div>
@@ -125,8 +126,8 @@
 
         <section id="topic-list" class="topic-list"></section>
         <section id="empty-state" class="empty-state hidden">
-          <h3>No topics loaded</h3>
-          <p>Load a report URL or JSON file to populate the dashboard.</p>
+          <h3 id="empty-title">No topics loaded</h3>
+          <p id="empty-detail">No live data published yet. Use Refresh Live Data to run a manual collection.</p>
         </section>
       </main>
     </div>

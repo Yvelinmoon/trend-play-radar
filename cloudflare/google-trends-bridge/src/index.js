@@ -1,8 +1,13 @@
+import { runManualRefresh } from "./refresh";
+
 const CACHE_KEY = "latest-google-trends-bridge";
 const REPORT_CACHE_KEY = "latest-trend-play-radar-report";
 const DEBUG_SOURCES_CACHE_KEY = "latest-trend-play-radar-debug-sources";
 const REPORT_HISTORY_INDEX_KEY = "trend-play-radar-report-history-index";
 const REPORT_HISTORY_PREFIX = "trend-play-radar-report-history:";
+const SIGNAL_HISTORY_CACHE_KEY = "trend-play-radar-signal-history";
+const REFRESH_STATE_KEY = "trend-play-radar-refresh-state";
+const REFRESH_MIN_INTERVAL_MS = 90 * 1000;
 
 export default {
   async fetch(request, env) {
@@ -20,6 +25,8 @@ export default {
       const cachedReport = await getCachedReport(env);
       const debugSources = await getDebugSources(env);
       const history = await getReportHistoryIndex(env);
+      const signalHistory = await getSignalHistory(env);
+      const refreshState = await getRefreshState(env);
       return jsonResponse({
         ok: true,
         has_cache: Boolean(cached),
@@ -31,7 +38,105 @@ export default {
         debug_sources_cached_at: debugSources?.published_at ?? null,
         debug_platform_count: Object.keys(debugSources?.platforms || {}).length,
         report_history_count: history.length,
+        signal_history_count: signalHistory.length,
+        refresh_state: refreshState,
       }, 200, {}, "no-store");
+    }
+
+    if (url.pathname === "/refresh") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "method_not_allowed" }, 405);
+      }
+
+      const refreshState = await getRefreshState(env);
+      const now = Date.now();
+      const lastFinishedAt = refreshState?.finished_at ? Date.parse(refreshState.finished_at) : 0;
+      const lastStartedAt = refreshState?.started_at ? Date.parse(refreshState.started_at) : 0;
+
+      if (refreshState?.status === "running" && lastStartedAt && now - lastStartedAt < 5 * 60 * 1000) {
+        return jsonResponse(
+          {
+            error: "refresh_in_progress",
+            detail: "A manual refresh is already running.",
+            refresh_state: refreshState,
+          },
+          409,
+          {},
+          "no-store"
+        );
+      }
+
+      if (lastFinishedAt && now - lastFinishedAt < REFRESH_MIN_INTERVAL_MS) {
+        return jsonResponse(
+          {
+            error: "refresh_cooldown",
+            detail: "Refresh was triggered recently. Please wait before running it again.",
+            retry_after_ms: REFRESH_MIN_INTERVAL_MS - (now - lastFinishedAt),
+            refresh_state: refreshState,
+          },
+          429,
+          {},
+          "no-store"
+        );
+      }
+
+      const startedAt = new Date().toISOString();
+      await setRefreshState(env, { status: "running", started_at: startedAt, finished_at: null, error: null });
+      try {
+        const existingSignals = await getSignalHistory(env);
+        const result = await runManualRefresh(existingSignals);
+        await env.BRIDGE_CACHE.put(CACHE_KEY, JSON.stringify(result.bridgePayload));
+        await env.BRIDGE_CACHE.put(REPORT_CACHE_KEY, JSON.stringify(result.reportPayload));
+        await env.BRIDGE_CACHE.put(DEBUG_SOURCES_CACHE_KEY, JSON.stringify(result.debugPayload));
+        await env.BRIDGE_CACHE.put(SIGNAL_HISTORY_CACHE_KEY, JSON.stringify(result.signalHistory));
+        await writeReportHistory(env, result.reportPayload);
+
+        const finishedAt = new Date().toISOString();
+        await setRefreshState(env, {
+          status: "idle",
+          started_at: startedAt,
+          finished_at: finishedAt,
+          error: null,
+          summary: result.refreshSummary,
+        });
+
+        return jsonResponse(
+          {
+            ok: true,
+            ...result.refreshSummary,
+            refresh_state: {
+              status: "idle",
+              started_at: startedAt,
+              finished_at: finishedAt,
+            },
+          },
+          200,
+          {},
+          "no-store"
+        );
+      } catch (error) {
+        const finishedAt = new Date().toISOString();
+        await setRefreshState(env, {
+          status: "error",
+          started_at: startedAt,
+          finished_at: finishedAt,
+          error: error.message,
+        });
+        return jsonResponse(
+          {
+            error: "refresh_failed",
+            detail: error.message,
+            refresh_state: {
+              status: "error",
+              started_at: startedAt,
+              finished_at: finishedAt,
+            },
+          },
+          500,
+          {},
+          "no-store"
+        );
+      }
     }
 
     if (url.pathname === "/publish") {
@@ -84,6 +189,10 @@ export default {
           );
           await env.BRIDGE_CACHE.delete(REPORT_HISTORY_INDEX_KEY);
           cleared.push("history");
+        }
+        if (targets.includes("signals")) {
+          await env.BRIDGE_CACHE.delete(SIGNAL_HISTORY_CACHE_KEY);
+          cleared.push("signals");
         }
 
         return jsonResponse(
@@ -206,9 +315,23 @@ async function getReportHistoryIndex(env) {
   return raw ? JSON.parse(raw) : [];
 }
 
+async function getSignalHistory(env) {
+  const raw = await env.BRIDGE_CACHE.get(SIGNAL_HISTORY_CACHE_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
 async function getHistoryReport(env, batchId) {
   const raw = await env.BRIDGE_CACHE.get(`${REPORT_HISTORY_PREFIX}${batchId}`);
   return raw ? JSON.parse(raw) : null;
+}
+
+async function getRefreshState(env) {
+  const raw = await env.BRIDGE_CACHE.get(REFRESH_STATE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function setRefreshState(env, payload) {
+  await env.BRIDGE_CACHE.put(REFRESH_STATE_KEY, JSON.stringify(payload));
 }
 
 function normalizePublishedPayload(body) {
@@ -269,16 +392,16 @@ function buildBatchId(value) {
 
 function normalizeClearTargets(targets) {
   if (!Array.isArray(targets) || !targets.length) {
-    return ["bridge", "report", "debug", "history"];
+    return ["bridge", "report", "debug", "history", "signals"];
   }
   const normalized = Array.from(
     new Set(
       targets
         .map((value) => String(value || "").trim().toLowerCase())
-        .filter((value) => ["bridge", "report", "debug", "history"].includes(value))
+        .filter((value) => ["bridge", "report", "debug", "history", "signals"].includes(value))
     )
   );
-  return normalized.length ? normalized : ["bridge", "report", "debug", "history"];
+  return normalized.length ? normalized : ["bridge", "report", "debug", "history", "signals"];
 }
 
 function validateBridgeRecords(records) {

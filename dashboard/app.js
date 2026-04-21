@@ -12,6 +12,7 @@ const template = document.querySelector("#topic-card-template");
 const classificationFilter = document.querySelector("#classification-filter");
 const platformFilter = document.querySelector("#platform-filter");
 const searchFilter = document.querySelector("#search-filter");
+const refreshLiveButton = document.querySelector("#refresh-live");
 const loadLatestButton = document.querySelector("#load-latest");
 const openReportButton = document.querySelector("#open-report");
 const historySelect = document.querySelector("#history-select");
@@ -27,6 +28,8 @@ const currentSource = document.querySelector("#current-source");
 const historyCount = document.querySelector("#history-count");
 const viewMode = document.querySelector("#view-mode");
 const sourceComparison = document.querySelector("#source-comparison");
+const emptyTitle = document.querySelector("#empty-title");
+const emptyDetail = document.querySelector("#empty-detail");
 
 const historyStorageKey = "trend-play-radar:last-history-index-url";
 
@@ -44,6 +47,25 @@ function wireEvents() {
   platformFilter.addEventListener("change", applyFilters);
   searchFilter.addEventListener("input", applyFilters);
 
+  refreshLiveButton.addEventListener("click", async () => {
+    refreshLiveButton.disabled = true;
+    refreshStatus.textContent = "Running a live refresh from the worker...";
+    try {
+      const payload = await triggerRefresh();
+      refreshStatus.textContent = buildRefreshSummary(payload);
+      await loadHistoryIndex({ silent: true });
+      await loadFromUrl(getLiveReportUrl());
+      sourceStatus.textContent = "Loaded the latest refreshed live report.";
+    } catch (error) {
+      refreshStatus.textContent = formatRefreshError(error);
+      if (isNoDataError(error)) {
+        clearDashboard("No live data published yet", "Refresh finished without a publishable report yet.");
+      }
+    } finally {
+      refreshLiveButton.disabled = false;
+    }
+  });
+
   loadLatestButton.addEventListener("click", async () => {
     const latestUrl = getLiveReportUrl();
     sourceStatus.textContent = "Switching to live report...";
@@ -51,7 +73,12 @@ function wireEvents() {
       await loadFromUrl(latestUrl);
       sourceStatus.textContent = `Loaded live report from ${shortenUrl(latestUrl)}`;
     } catch (error) {
-      sourceStatus.textContent = formatLoadError(latestUrl, error);
+      if (isNoDataError(error)) {
+        clearDashboard("No live data published yet", "Use Refresh Live Data to run a manual collection.");
+        sourceStatus.textContent = "No live report is available yet.";
+      } else {
+        sourceStatus.textContent = formatLoadError(latestUrl, error);
+      }
     }
   });
 
@@ -85,8 +112,13 @@ async function tryAutoLoad() {
     await loadFromUrl(liveUrl);
     viewMode.textContent = inferViewMode(liveUrl);
     return;
-  } catch {
-    sourceStatus.textContent = "No live report is available yet.";
+  } catch (error) {
+    if (isNoDataError(error)) {
+      clearDashboard("No live data published yet", "Use Refresh Live Data to run a manual collection.");
+      sourceStatus.textContent = "No live report is available yet.";
+      return;
+    }
+    sourceStatus.textContent = formatLoadError(liveUrl, error);
   }
 }
 
@@ -97,7 +129,16 @@ async function loadFromUrl(url) {
 
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`Failed to load report: HTTP ${response.status}`);
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    const error = new Error(payload?.detail || `Failed to load report: HTTP ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
 
   const payload = await response.json();
@@ -137,6 +178,11 @@ function formatLoadError(url, error) {
   return `Failed to load ${shortenUrl(url)}: ${message}`;
 }
 
+function formatRefreshError(error) {
+  const message = error instanceof Error ? error.message : String(error || "Unknown error");
+  return `Refresh failed: ${message}`;
+}
+
 async function loadHistoryIndex({ silent = false } = {}) {
   const url = buildHistoryIndexUrl();
   try {
@@ -169,6 +215,21 @@ function ingestTopics(payload) {
   populatePlatformFilter();
   applyFilters();
   renderSourceComparison();
+}
+
+function clearDashboard(title, detail) {
+  state.allTopics = [];
+  state.filteredTopics = [];
+  topicList.innerHTML = "";
+  sourceComparison.innerHTML = "";
+  topicCount.textContent = "0";
+  highConfidenceCount.textContent = "0";
+  averagePriority.textContent = "0";
+  lastPublished.textContent = "n/a";
+  currentSource.textContent = "n/a";
+  if (emptyTitle) emptyTitle.textContent = title;
+  if (emptyDetail) emptyDetail.textContent = detail;
+  emptyState.classList.remove("hidden");
 }
 
 function populatePlatformFilter() {
@@ -497,6 +558,41 @@ function inferViewMode(url) {
   if (url.includes("/history/")) return "history";
   if (url.includes("/report")) return "live";
   return "latest";
+}
+
+async function triggerRefresh() {
+  const response = await fetch(`${DEFAULT_REMOTE_BASE}/refresh`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: "{}",
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) {
+    const error = new Error(payload?.detail || `Refresh failed: HTTP ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function buildRefreshSummary(payload) {
+  const topicCountValue = payload?.topic_count ?? 0;
+  const signalCount = payload?.signal_count ?? 0;
+  const googleCount = payload?.sources?.google_trends?.count ?? 0;
+  const rssCount = payload?.sources?.rss?.count ?? 0;
+  return `Refresh completed. ${topicCountValue} topics from ${signalCount} fresh signals. RSS ${rssCount}, Google Trends ${googleCount}.`;
+}
+
+function isNoDataError(error) {
+  return error && Number(error.status) === 502;
 }
 
 function shortenUrl(url) {
