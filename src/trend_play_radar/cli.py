@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -21,6 +22,7 @@ from trend_play_radar.pipeline.score import score_topics
 from trend_play_radar.storage import Storage
 
 DEFAULT_USER_AGENT = "trend-play-radar/0.1"
+DEFAULT_WORKER_BASE_URL = "https://trend-play-radar-google-trends-bridge.xiyomi-congito-kant999.workers.dev"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,6 +69,21 @@ def build_parser() -> argparse.ArgumentParser:
     debug_publish_parser.add_argument("--debug-url", required=True, help="Cloudflare debug publish endpoint URL")
     debug_publish_parser.add_argument("--bridge-secret", required=True, help="Secret for x-bridge-secret")
     debug_publish_parser.add_argument("--input", required=True, help="Path to latest_debug_sources.json to publish")
+
+    sync_parser = subparsers.add_parser("local-google-refresh")
+    sync_parser.add_argument("--keywords", default="", help="Comma-separated watchlist keywords")
+    sync_parser.add_argument("--rss-feeds", default="", help="Comma-separated RSS or Atom feed URLs/paths")
+    sync_parser.add_argument("--worker-base-url", default="", help="Worker base URL for publish endpoints")
+    sync_parser.add_argument("--bridge-secret", default="", help="Secret for x-bridge-secret")
+    sync_parser.add_argument("--geo", help="Google Trends region code")
+    sync_parser.add_argument("--language", help="Google Trends language/locale")
+    sync_parser.add_argument("--tz", type=int, help="Google Trends timezone offset in minutes")
+    sync_parser.add_argument("--timeframe", help="Google Trends timeframe, for example 'now 7-d'")
+    sync_parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Clear stored signals and topic snapshots before collecting a new batch",
+    )
     return parser
 
 
@@ -160,6 +177,102 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Published debug source payload with {len(result.get('platforms', {}))} platforms to {args.debug_url}")
         return 0
 
+    if args.command == "local-google-refresh":
+        worker_base_url = (
+            args.worker_base_url
+            or os.getenv("TREND_PLAY_RADAR_WORKER_BASE_URL")
+            or DEFAULT_WORKER_BASE_URL
+        ).rstrip("/")
+        bridge_secret = args.bridge_secret or os.getenv("TREND_PLAY_RADAR_BRIDGE_SECRET", "")
+        if not bridge_secret:
+            print(
+                "Missing bridge secret. Set --bridge-secret or TREND_PLAY_RADAR_BRIDGE_SECRET.",
+                file=sys.stderr,
+            )
+            return 2
+
+        keywords = [item.strip() for item in args.keywords.split(",") if item.strip()] or config.default_keywords
+        rss_feeds = [item.strip() for item in args.rss_feeds.split(",") if item.strip()] or config.default_rss_feeds
+        output_path = config.default_trends_output_path
+        query_map = (
+            [
+                {"topic_key": keyword.lower().replace(" ", "_"), "topic_label": keyword.title(), "queries": [keyword]}
+                for keyword in keywords
+            ]
+            if [item.strip() for item in args.keywords.split(",") if item.strip()]
+            else config.default_trends_topic_map
+        )
+
+        try:
+            records = build_bridge(
+                TrendsBridgeOptions(
+                    queries=build_trends_queries(query_map),
+                    output_path=output_path,
+                    geo=args.geo or config.default_trends_geo,
+                    language=args.language or config.default_trends_language,
+                    timezone_offset=args.tz if args.tz is not None else config.default_trends_timezone,
+                    timeframe=args.timeframe or config.default_trends_timeframe,
+                )
+            )
+        except GoogleTrendsBridgeError as exc:
+            print(f"Google Trends bridge failed: {exc}", file=sys.stderr)
+            return 1
+
+        if not records:
+            print("Google Trends bridge returned 0 records. Aborting publish.", file=sys.stderr)
+            return 1
+
+        storage = Storage(config.database_path)
+        try:
+            if args.fresh:
+                storage.clear_all()
+
+            signals = collect_signals(
+                ["rss", "google_trends"],
+                project_root=config.project_root,
+                json_input=None,
+                keywords=keywords,
+                rss_feeds=rss_feeds,
+                trends_bridge=str(output_path),
+            )
+            count = storage.upsert_signals(signals)
+            print(f"Stored {count} signals in {config.database_path}")
+
+            topics = score_topics(cluster_signals(storage.load_signals()))
+            storage.replace_topics(topics)
+            print(f"Scored {len(topics)} topics")
+
+            markdown_path, json_path = write_reports(topics, config.output_dir, limit=config.default_report_limit)
+            debug_path = write_debug_sources(signals, config.output_dir)
+            print(f"Wrote debug source snapshot to {debug_path}")
+            print(f"Wrote reports to {markdown_path} and {json_path}")
+
+            publish_json_payload(
+                f"{worker_base_url}/publish",
+                bridge_secret,
+                output_path.read_text(),
+            )
+            print(f"Published {len(records)} Google Trends bridge records to {worker_base_url}/publish")
+
+            report_payload = json.loads(json_path.read_text())
+            publish_json_payload(
+                f"{worker_base_url}/publish-report",
+                bridge_secret,
+                json.dumps(report_payload, ensure_ascii=False),
+            )
+            print(f"Published {len(report_payload.get('topics', []))} report topics to {worker_base_url}/publish-report")
+
+            publish_json_payload(
+                f"{worker_base_url}/publish-debug-sources",
+                bridge_secret,
+                debug_path.read_text(),
+            )
+            print(f"Published debug source payload to {worker_base_url}/publish-debug-sources")
+            print(f"Live dashboard: {worker_base_url}/report")
+            return 0
+        finally:
+            storage.close()
+
     storage = Storage(config.database_path)
 
     try:
@@ -252,11 +365,6 @@ def topic_from_record(record: dict):
         evidence=record.get("evidence", []),
     )
 
-
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
-
-
 def build_trends_queries(topic_map: list[dict]) -> list[TrendsQuery]:
     queries: list[TrendsQuery] = []
     for topic in topic_map:
@@ -275,3 +383,23 @@ def build_trends_queries(topic_map: list[dict]) -> list[TrendsQuery]:
                 )
             )
     return queries
+
+
+def publish_json_payload(url: str, bridge_secret: str, payload: str) -> dict:
+    request = Request(
+        url,
+        data=payload.encode("utf-8"),
+        method="POST",
+        headers={
+            "content-type": "application/json",
+            "x-bridge-secret": bridge_secret,
+            "user-agent": DEFAULT_USER_AGENT,
+        },
+    )
+    with urlopen(request, timeout=30) as response:
+        body = response.read().decode("utf-8")
+    return json.loads(body)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

@@ -129,6 +129,32 @@ PYTHONPATH=src python3 -m trend_play_radar build-trends-bridge
 
 Note: direct Google Trends requests can be rate-limited with HTTP 429 depending on network conditions. When that happens, keep using the same connector contract and point `--trends-bridge` at a JSON file or external bridge endpoint instead.
 
+## Recommended Local Google Flow
+
+If Cloudflare cannot fetch Google Trends reliably, use your local network for Google and publish the result back to the live dashboard:
+
+```bash
+export TREND_PLAY_RADAR_BRIDGE_SECRET="your-bridge-secret"
+cd /Users/yves/trend-play-radar
+PYTHONPATH=src python3 -m trend_play_radar local-google-refresh --fresh
+```
+
+What this does in one command:
+
+- fetches Google Trends locally
+- collects RSS + local Google bridge data
+- rebuilds the report and debug snapshot
+- publishes `bridge`, `report`, and `debug-sources` to the Cloudflare Worker
+
+Optional overrides:
+
+```bash
+PYTHONPATH=src python3 -m trend_play_radar local-google-refresh \
+  --worker-base-url https://<your-worker-domain> \
+  --bridge-secret <your-secret> \
+  --keywords "brainrot meme,cozy game"
+```
+
 For Cloudflare deployment, a ready-to-deploy Worker bridge is included in:
 
 - [cloudflare/google-trends-bridge/README.md](/Users/yves/trend-play-radar/cloudflare/google-trends-bridge/README.md)
