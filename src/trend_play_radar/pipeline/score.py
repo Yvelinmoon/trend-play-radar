@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from math import ceil
 
 from trend_play_radar.models import RawSignal, Topic, utcnow
-from trend_play_radar.pipeline.cluster import tokenize
+from trend_play_radar.pipeline.cluster import tokenize, topic_keywords_for_key, topic_label_for_key
 
 
 CURRENT_WINDOW = timedelta(hours=24)
@@ -46,7 +46,7 @@ def score_topics(clustered_signals: dict[str, list[RawSignal]]) -> list[Topic]:
 
 def build_topic(topic_key: str, signals: list[RawSignal]) -> Topic:
     reference_time = max((signal.published_at for signal in signals), default=utcnow())
-    keywords = extract_keywords(signals)
+    keywords = extract_keywords(signals, topic_key=topic_key)
     platform_counts = Counter(signal.platform for signal in signals)
 
     current_signals, previous_signals, baseline_signals = split_windows(signals, reference_time)
@@ -126,7 +126,7 @@ def build_topic(topic_key: str, signals: list[RawSignal]) -> Topic:
 
     return Topic(
         topic_key=topic_key,
-        label=build_label(keywords),
+        label=build_label(topic_key, keywords),
         signals=signals,
         platforms=sorted(platform_counts),
         keywords=keywords,
@@ -345,8 +345,10 @@ def assess_spike_risk(
     return "low"
 
 
-def extract_keywords(signals: list[RawSignal]) -> list[str]:
+def extract_keywords(signals: list[RawSignal], *, topic_key: str = "") -> list[str]:
     counts: Counter[str] = Counter()
+    seed_keywords = topic_keywords_for_key(topic_key)
+    counts.update(seed_keywords * 3)
     for signal in signals:
         counts.update(tokenize(" ".join([signal.keyword_hint, signal.title, signal.summary, *signal.tags])))
     priority_tokens = {"quiz", "personality", "fandom", "character", "cozy", "puzzle", "merge", "idle", "wholesome", "visual", "novel", "adventure", "simulation", "sports", "action"}
@@ -458,8 +460,26 @@ def build_trend_summary(
     return f"Current window {current_window_count} vs previous {previous_window_count}."
 
 
-def build_label(keywords: list[str]) -> str:
-    return " ".join(keyword.capitalize() for keyword in keywords[:3]) or "Untitled Trend"
+def build_label(topic_key: str, keywords: list[str]) -> str:
+    mapped = topic_label_for_key(topic_key)
+    if mapped:
+        return mapped
+
+    if "management" in keywords or "simulation" in keywords:
+        return "Management Sim"
+    if "platformer" in keywords or "precision" in keywords:
+        return "Precision Platformer"
+    if "shooter" in keywords:
+        return "Arcade Shooter"
+    if "card" in keywords or "strategy" in keywords or "chess" in keywords:
+        return "Card Strategy"
+    if "visual" in keywords and "novel" in keywords:
+        return "Visual Novel Story"
+    if "puzzle" in keywords:
+        return "Puzzle Prototype"
+
+    trimmed = [keyword.capitalize() for keyword in keywords[:2]]
+    return " ".join(trimmed) or "Untitled Trend"
 
 
 def suggest_game_formats(keywords: list[str]) -> list[str]:

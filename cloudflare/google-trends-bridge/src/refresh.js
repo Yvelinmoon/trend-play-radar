@@ -80,12 +80,61 @@ const STOPWORDS = new Set([
 ]);
 
 const THEME_GROUPS = {
-  "office-personality": new Set(["office", "coworkers", "manager", "workplace", "quiz", "personality", "identity", "class", "classes", "character", "archetypes", "chaos", "brainrot"]),
-  "boss-fight-parody": new Set(["boss", "fight", "combat", "parody", "manager", "attack", "phase", "weak", "side", "scrolling"]),
-  "routine-parody": new Set(["routine", "goblin", "productivity", "daily", "cursed", "parody", "humor"]),
-  "dating-checklist": new Set(["dating", "situationship", "checklist", "questions", "scorecard", "relationship", "flags", "flag"]),
-  "cozy-puzzle": new Set(["cozy", "puzzle", "wholesome", "relaxing", "story", "mystery", "novel"]),
-  "merge-idle": new Set(["merge", "idle", "incremental", "sim", "simulation", "builder"]),
+  "personality-quiz": {
+    label: "Personality Quiz",
+    keywords: ["personality", "quiz", "identity", "character"],
+    tokens: new Set(["office", "coworkers", "manager", "workplace", "quiz", "personality", "identity", "alignment", "chart", "class", "classes", "character", "archetypes", "archetype", "fandom", "picker", "brainrot", "test"]),
+  },
+  "dating-checklist": {
+    label: "Dating Checklist",
+    keywords: ["dating", "checklist", "relationship", "scorecard"],
+    tokens: new Set(["dating", "situationship", "checklist", "questions", "scorecard", "relationship", "flags", "flag", "red"]),
+  },
+  "cozy-puzzle": {
+    label: "Cozy Puzzle",
+    keywords: ["cozy", "puzzle", "wholesome", "relaxing"],
+    tokens: new Set(["cozy", "puzzle", "wholesome", "relaxing", "story", "mystery", "novel"]),
+  },
+  "merge-idle": {
+    label: "Merge Idle",
+    keywords: ["merge", "idle", "incremental", "builder"],
+    tokens: new Set(["merge", "idle", "incremental", "sim", "simulation", "builder"]),
+  },
+  "management-sim": {
+    label: "Management Sim",
+    keywords: ["management", "simulation", "builder", "tycoon"],
+    tokens: new Set(["management", "manager", "simulation", "sim", "builder", "tycoon", "shop", "station", "business", "colony", "houses", "restaurant"]),
+  },
+  "arcade-shooter": {
+    label: "Arcade Shooter",
+    keywords: ["shooter", "arcade", "action", "twin-stick"],
+    tokens: new Set(["shooter", "shoot", "bullet", "arcade", "blaster", "blasters", "twin", "stick", "combat", "action"]),
+  },
+  "precision-platformer": {
+    label: "Precision Platformer",
+    keywords: ["platformer", "precision", "action", "jump"],
+    tokens: new Set(["platformer", "platforming", "precision", "jump", "runner", "metroidvania", "parkour"]),
+  },
+  "card-strategy": {
+    label: "Card Strategy",
+    keywords: ["card", "strategy", "deck", "tactics"],
+    tokens: new Set(["card", "cards", "deck", "chess", "strategy", "tactics", "tactical", "autobattler", "casino", "poker"]),
+  },
+  "visual-novel-story": {
+    label: "Visual Novel Story",
+    keywords: ["visual", "novel", "story", "narrative"],
+    tokens: new Set(["visual", "novel", "story", "narrative", "dialogue", "romance"]),
+  },
+  "horror-exploration": {
+    label: "Horror Exploration",
+    keywords: ["horror", "exploration", "mystery", "adventure"],
+    tokens: new Set(["horror", "exploration", "underworld", "nightmare", "dark", "cave", "dungeon", "haunted", "mystery"]),
+  },
+  "educational-sim": {
+    label: "Educational Sim",
+    keywords: ["educational", "simulation", "learning", "management"],
+    tokens: new Set(["educational", "education", "learning", "recycle", "recycling", "school", "management"]),
+  },
 };
 
 const GAME_FORMAT_RULES = {
@@ -472,17 +521,26 @@ function tokenize(value) {
 function deriveThemeKey(tokens) {
   const tokenSet = new Set(tokens);
   let bestMatch = null;
-  for (const [themeKey, themeTokens] of Object.entries(THEME_GROUPS)) {
+  for (const [themeKey, metadata] of Object.entries(THEME_GROUPS)) {
+    const themeTokens = metadata.tokens;
     let overlap = 0;
     for (const token of tokenSet) {
       if (themeTokens.has(token)) overlap += 1;
     }
     if (overlap < 2) continue;
-    if (!bestMatch || overlap > bestMatch.overlap) {
-      bestMatch = { themeKey, overlap };
+    if (!bestMatch || overlap > bestMatch.overlap || (overlap === bestMatch.overlap && themeTokens.size < bestMatch.tokenCount)) {
+      bestMatch = { themeKey, overlap, tokenCount: themeTokens.size };
     }
   }
   return bestMatch?.themeKey || null;
+}
+
+function topicLabelForKey(topicKey) {
+  return THEME_GROUPS[topicKey]?.label || "";
+}
+
+function topicKeywordsForKey(topicKey) {
+  return [...(THEME_GROUPS[topicKey]?.keywords || [])];
 }
 
 function scoreToken(token) {
@@ -500,7 +558,7 @@ function buildTopic(topicKey, signals) {
     const time = new Date(signal.published_at).getTime();
     return Math.max(latest, time);
   }, Date.now());
-  const keywords = extractKeywords(signals);
+  const keywords = extractKeywords(signals, topicKey);
   const platformCounts = countPlatforms(signals);
   const windows = splitWindows(signals, referenceTime);
   const currentEngagement = sum(windows.current.map((signal) => signal.engagement || 0));
@@ -550,7 +608,7 @@ function buildTopic(topicKey, signals) {
 
   return {
     topic_key: topicKey,
-    label: buildLabel(keywords),
+    label: buildLabel(topicKey, keywords),
     platforms: Object.keys(platformCounts).sort(),
     keywords,
     current_window_count: windows.current.length,
@@ -742,8 +800,11 @@ function assessSpikeRisk({ currentWindowCount, previousWindowCount, platformCoun
   return "low";
 }
 
-function extractKeywords(signals) {
+function extractKeywords(signals, topicKey = "") {
   const counts = new Map();
+  for (const keyword of topicKeywordsForKey(topicKey)) {
+    counts.set(keyword, (counts.get(keyword) || 0) + 3);
+  }
   const priorityTokens = new Set(["quiz", "personality", "fandom", "character", "cozy", "puzzle", "merge", "idle", "wholesome", "visual", "novel", "adventure", "simulation", "sports", "action"]);
   for (const signal of signals) {
     for (const token of tokenize([signal.keyword_hint, signal.title, signal.summary, ...(signal.tags || [])].join(" "))) {
@@ -830,8 +891,16 @@ function buildTrendSummary({ trendSeries, trendDirection, currentWindowCount, pr
   return `Current window ${currentWindowCount} vs previous ${previousWindowCount}.`;
 }
 
-function buildLabel(keywords) {
-  return keywords.slice(0, 3).map((keyword) => keyword.charAt(0).toUpperCase() + keyword.slice(1)).join(" ") || "Untitled Trend";
+function buildLabel(topicKey, keywords) {
+  const mapped = topicLabelForKey(topicKey);
+  if (mapped) return mapped;
+  if (keywords.includes("management") || keywords.includes("simulation")) return "Management Sim";
+  if (keywords.includes("platformer") || keywords.includes("precision")) return "Precision Platformer";
+  if (keywords.includes("shooter")) return "Arcade Shooter";
+  if (keywords.includes("card") || keywords.includes("strategy") || keywords.includes("chess")) return "Card Strategy";
+  if (keywords.includes("visual") && keywords.includes("novel")) return "Visual Novel Story";
+  if (keywords.includes("puzzle")) return "Puzzle Prototype";
+  return keywords.slice(0, 2).map((keyword) => keyword.charAt(0).toUpperCase() + keyword.slice(1)).join(" ") || "Untitled Trend";
 }
 
 function suggestGameFormats(keywords) {
