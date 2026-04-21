@@ -11,6 +11,11 @@ DEFAULT_ITCH_IO_FEEDS = [
     "https://itch.io/games/price-free.xml",
 ]
 
+DEFAULT_YOUTUBE_CATEGORIES = [
+    "20",
+    "24",
+]
+
 DEFAULT_WATCHLIST = [
     "brainrot meme",
     "chaos meme",
@@ -111,6 +116,10 @@ class AppConfig:
     default_trends_language: str = "en-US"
     default_trends_timezone: int = 0
     default_trends_timeframe: str = "now 7-d"
+    default_youtube_api_key: str = ""
+    default_youtube_region: str = "US"
+    default_youtube_max_results: int = 25
+    default_youtube_categories: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         output_dir_override = os.getenv("TREND_PLAY_RADAR_OUTPUT_DIR", "")
@@ -141,6 +150,15 @@ class AppConfig:
         self.default_trends_timeframe = os.getenv(
             "TREND_PLAY_RADAR_TRENDS_TIMEFRAME", self.default_trends_timeframe
         )
+        self.default_youtube_api_key = os.getenv("TREND_PLAY_RADAR_YOUTUBE_API_KEY", "")
+        self.default_youtube_region = os.getenv("TREND_PLAY_RADAR_YOUTUBE_REGION", self.default_youtube_region)
+        self.default_youtube_max_results = int(
+            os.getenv("TREND_PLAY_RADAR_YOUTUBE_MAX_RESULTS", str(self.default_youtube_max_results))
+        )
+        youtube_categories_value = os.getenv("TREND_PLAY_RADAR_YOUTUBE_CATEGORIES", "")
+        self.default_youtube_categories = [
+            item.strip() for item in youtube_categories_value.split(",") if item.strip()
+        ] or list(DEFAULT_YOUTUBE_CATEGORIES)
 
 
 def get_config() -> AppConfig:

@@ -5,6 +5,7 @@ from trend_play_radar.connectors.mock import MockConnector
 from trend_play_radar.connectors.reddit import RedditConnector
 from trend_play_radar.connectors.rss import RSSConnector
 from trend_play_radar.connectors.tiktok import TikTokConnector
+from trend_play_radar.connectors.youtube import YouTubeConnector
 from trend_play_radar.connectors.x_source import XConnector
 
 CONNECTOR_REGISTRY = {
@@ -13,6 +14,7 @@ CONNECTOR_REGISTRY = {
     "rss": RSSConnector,
     "reddit": RedditConnector,
     "tiktok": TikTokConnector,
+    "youtube": YouTubeConnector,
     "x": XConnector,
     "google_trends": GoogleTrendsConnector,
 }

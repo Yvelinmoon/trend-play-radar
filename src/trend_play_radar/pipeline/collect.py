@@ -13,6 +13,10 @@ def collect_signals(
     keywords: list[str] | None = None,
     rss_feeds: list[str] | None = None,
     trends_bridge: str | None = None,
+    youtube_api_key: str = "",
+    youtube_region: str = "US",
+    youtube_max_results: int = 25,
+    youtube_categories: list[str] | None = None,
 ) -> list[RawSignal]:
     context = ConnectorContext(
         project_root=project_root,
@@ -20,6 +24,10 @@ def collect_signals(
         keywords=keywords or [],
         rss_feeds=rss_feeds or [],
         trends_bridge=trends_bridge,
+        youtube_api_key=youtube_api_key,
+        youtube_region=youtube_region,
+        youtube_max_results=youtube_max_results,
+        youtube_categories=youtube_categories or [],
     )
     signals: list[RawSignal] = []
 

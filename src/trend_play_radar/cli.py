@@ -36,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--keywords", default="", help="Comma-separated watchlist keywords")
         subparser.add_argument("--rss-feeds", default="", help="Comma-separated RSS or Atom feed URLs/paths")
         subparser.add_argument("--trends-bridge", help="URL or file path returning Google Trends JSON data")
+        subparser.add_argument("--youtube-region", default="", help="YouTube region code, for example US")
+        subparser.add_argument("--youtube-max-results", type=int, default=0, help="YouTube items per category")
+        subparser.add_argument("--youtube-categories", default="", help="Comma-separated YouTube video category IDs")
         subparser.add_argument(
             "--fresh",
             action="store_true",
@@ -80,6 +83,19 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("--tz", type=int, help="Google Trends timezone offset in minutes")
     sync_parser.add_argument("--timeframe", help="Google Trends timeframe, for example 'now 7-d'")
     sync_parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Clear stored signals and topic snapshots before collecting a new batch",
+    )
+
+    youtube_refresh_parser = subparsers.add_parser("local-youtube-refresh")
+    youtube_refresh_parser.add_argument("--rss-feeds", default="", help="Comma-separated RSS or Atom feed URLs/paths")
+    youtube_refresh_parser.add_argument("--worker-base-url", default="", help="Worker base URL for publish endpoints")
+    youtube_refresh_parser.add_argument("--bridge-secret", default="", help="Secret for x-bridge-secret")
+    youtube_refresh_parser.add_argument("--youtube-region", default="", help="YouTube region code, for example US")
+    youtube_refresh_parser.add_argument("--youtube-max-results", type=int, default=0, help="YouTube items per category")
+    youtube_refresh_parser.add_argument("--youtube-categories", default="", help="Comma-separated YouTube video category IDs")
+    youtube_refresh_parser.add_argument(
         "--fresh",
         action="store_true",
         help="Clear stored signals and topic snapshots before collecting a new batch",
@@ -273,6 +289,85 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             storage.close()
 
+    if args.command == "local-youtube-refresh":
+        worker_base_url = (
+            args.worker_base_url
+            or os.getenv("TREND_PLAY_RADAR_WORKER_BASE_URL")
+            or DEFAULT_WORKER_BASE_URL
+        ).rstrip("/")
+        bridge_secret = args.bridge_secret or os.getenv("TREND_PLAY_RADAR_BRIDGE_SECRET", "")
+        if not bridge_secret:
+            print(
+                "Missing bridge secret. Set --bridge-secret or TREND_PLAY_RADAR_BRIDGE_SECRET.",
+                file=sys.stderr,
+            )
+            return 2
+        if not config.default_youtube_api_key:
+            print(
+                "Missing YouTube API key. Set TREND_PLAY_RADAR_YOUTUBE_API_KEY before running local-youtube-refresh.",
+                file=sys.stderr,
+            )
+            return 2
+
+        rss_feeds = [item.strip() for item in args.rss_feeds.split(",") if item.strip()] or config.default_rss_feeds
+        youtube_region = args.youtube_region or config.default_youtube_region
+        youtube_max_results = args.youtube_max_results or config.default_youtube_max_results
+        youtube_categories = [
+            item.strip() for item in args.youtube_categories.split(",") if item.strip()
+        ] or config.default_youtube_categories
+
+        storage = Storage(config.database_path)
+        try:
+            if args.fresh:
+                storage.clear_all()
+
+            signals = collect_signals(
+                ["rss", "youtube"],
+                project_root=config.project_root,
+                json_input=None,
+                keywords=config.default_keywords,
+                rss_feeds=rss_feeds,
+                trends_bridge=None,
+                youtube_api_key=config.default_youtube_api_key,
+                youtube_region=youtube_region,
+                youtube_max_results=youtube_max_results,
+                youtube_categories=youtube_categories,
+            )
+            if not any(signal.platform == "youtube" for signal in signals):
+                print("YouTube returned 0 signals. Aborting publish.", file=sys.stderr)
+                return 1
+
+            count = storage.upsert_signals(signals)
+            print(f"Stored {count} signals in {config.database_path}")
+
+            topics = score_topics(cluster_signals(storage.load_signals()))
+            storage.replace_topics(topics)
+            print(f"Scored {len(topics)} topics")
+
+            markdown_path, json_path = write_reports(topics, config.output_dir, limit=config.default_report_limit)
+            debug_path = write_debug_sources(signals, config.output_dir)
+            print(f"Wrote debug source snapshot to {debug_path}")
+            print(f"Wrote reports to {markdown_path} and {json_path}")
+
+            report_payload = json.loads(json_path.read_text())
+            publish_json_payload(
+                f"{worker_base_url}/publish-report",
+                bridge_secret,
+                json.dumps(report_payload, ensure_ascii=False),
+            )
+            print(f"Published {len(report_payload.get('topics', []))} report topics to {worker_base_url}/publish-report")
+
+            publish_json_payload(
+                f"{worker_base_url}/publish-debug-sources",
+                bridge_secret,
+                debug_path.read_text(),
+            )
+            print(f"Published debug source payload to {worker_base_url}/publish-debug-sources")
+            print(f"Live dashboard: {worker_base_url}/report")
+            return 0
+        finally:
+            storage.close()
+
     storage = Storage(config.database_path)
 
     try:
@@ -284,6 +379,11 @@ def main(argv: list[str] | None = None) -> int:
             keywords = [item.strip() for item in args.keywords.split(",") if item.strip()]
             rss_feeds = [item.strip() for item in args.rss_feeds.split(",") if item.strip()]
             trends_bridge = args.trends_bridge or config.default_trends_bridge
+            youtube_region = args.youtube_region or config.default_youtube_region
+            youtube_max_results = args.youtube_max_results or config.default_youtube_max_results
+            youtube_categories = [
+                item.strip() for item in args.youtube_categories.split(",") if item.strip()
+            ] or config.default_youtube_categories
             if not rss_feeds:
                 rss_feeds = config.default_rss_feeds
             if not keywords:
@@ -295,6 +395,10 @@ def main(argv: list[str] | None = None) -> int:
                 keywords=keywords,
                 rss_feeds=rss_feeds,
                 trends_bridge=trends_bridge,
+                youtube_api_key=config.default_youtube_api_key,
+                youtube_region=youtube_region,
+                youtube_max_results=youtube_max_results,
+                youtube_categories=youtube_categories,
             )
             count = storage.upsert_signals(signals)
             print(f"Stored {count} signals in {config.database_path}")

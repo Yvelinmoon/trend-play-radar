@@ -31,12 +31,14 @@ The pipeline turns raw platform signals into ranked trend topics:
 - `mock`: sample data for end-to-end local runs
 - `json`: load signals from a local JSON file
 - `rss`: fetch RSS or Atom feeds automatically
+- `youtube`: fetch YouTube `mostPopular` videos through the official Data API
 - `google_trends`: load automatic trend-validation data from a bridge URL or file
 - `reddit`: scaffold for future PRAW integration
 - `tiktok`: scaffold for future TikTok-Api integration
 - `x`: scaffold for future twscrape integration
 
 The Reddit, TikTok, and X connectors are still scaffolds. RSS and Google Trends bridge are available now.
+YouTube is also available when you provide a YouTube Data API key.
 
 ## Quick start
 
@@ -119,6 +121,9 @@ You can also set defaults with environment variables:
 ```bash
 export TREND_PLAY_RADAR_RSS_FEEDS="https://example.com/feed.xml,https://example.com/atom.xml"
 export TREND_PLAY_RADAR_TRENDS_BRIDGE="https://example.com/google-trends-bridge.json"
+export TREND_PLAY_RADAR_YOUTUBE_API_KEY="your-youtube-data-api-key"
+export TREND_PLAY_RADAR_YOUTUBE_REGION="US"
+export TREND_PLAY_RADAR_YOUTUBE_CATEGORIES="20,24"
 ```
 
 The project also includes a local bridge builder:
@@ -153,6 +158,30 @@ PYTHONPATH=src python3 -m trend_play_radar local-google-refresh \
   --worker-base-url https://<your-worker-domain> \
   --bridge-secret <your-secret> \
   --keywords "brainrot meme,cozy game"
+```
+
+## Local YouTube Flow
+
+If you want a more stable broad-audience validation source, use YouTube locally and publish the analyzed result back to the live dashboard:
+
+```bash
+export TREND_PLAY_RADAR_BRIDGE_SECRET="your-bridge-secret"
+export TREND_PLAY_RADAR_YOUTUBE_API_KEY="your-youtube-data-api-key"
+cd /Users/yves/trend-play-radar
+PYTHONPATH=src python3 -m trend_play_radar local-youtube-refresh --fresh
+```
+
+This command:
+
+- fetches YouTube `mostPopular` videos through the official API
+- combines them with RSS signals
+- rebuilds the report and debug snapshot
+- publishes the live report and debug payload to Cloudflare
+
+You can also run the connector directly in local analysis:
+
+```bash
+PYTHONPATH=src python3 -m trend_play_radar run --fresh --connectors rss,youtube
 ```
 
 For Cloudflare deployment, a ready-to-deploy Worker bridge is included in:

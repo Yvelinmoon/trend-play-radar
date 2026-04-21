@@ -99,3 +99,23 @@ class SmokeTest(TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_local_youtube_refresh_parser_exists(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(project_root / "src")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "trend_play_radar",
+                "local-youtube-refresh",
+                "--help",
+            ],
+            cwd=project_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)

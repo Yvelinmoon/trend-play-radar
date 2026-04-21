@@ -358,7 +358,7 @@ function renderSourceComparison() {
     }
   }
 
-  const preferredOrder = ["google_trends", "rss"];
+  const preferredOrder = ["youtube", "google_trends", "rss"];
   const orderedPlatforms = Array.from(new Set([...preferredOrder, ...platformGroups.keys()])).filter((platform) =>
     platformGroups.has(platform)
   );
@@ -402,7 +402,15 @@ function renderSourceComparison() {
         </div>
         <div class="source-stat">
           <span>Role</span>
-          <strong>${platform === "google_trends" ? "Validation" : platform === "rss" ? "Discovery" : "Signal"}</strong>
+          <strong>${
+            platform === "youtube"
+              ? "Broad Attention"
+              : platform === "google_trends"
+                ? "Validation"
+                : platform === "rss"
+                  ? "Discovery"
+                  : "Signal"
+          }</strong>
         </div>
       </div>
     `;
@@ -445,6 +453,7 @@ function averageOf(items, key) {
 }
 
 function formatPlatformName(platform) {
+  if (platform === "youtube") return "YouTube";
   if (platform === "google_trends") return "Google Trends";
   if (platform === "rss") return "itch.io / RSS";
   return platform.replaceAll("_", " ");

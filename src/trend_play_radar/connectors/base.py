@@ -13,6 +13,10 @@ class ConnectorContext:
     keywords: list[str] = field(default_factory=list)
     rss_feeds: list[str] = field(default_factory=list)
     trends_bridge: str | None = None
+    youtube_api_key: str = ""
+    youtube_region: str = "US"
+    youtube_max_results: int = 25
+    youtube_categories: list[str] = field(default_factory=list)
 
 
 class Connector:
